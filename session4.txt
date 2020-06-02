@@ -1,0 +1,118 @@
+# HOW to allow DPDK custom args to exisitng applciation
+
+## Hard code the args
+
+### when to use
+ - avoid using this logic at any cost
+ 
+### PROS:
+ - none I can think about
+ 
+### CONS:
+ - hard coded
+ - with each new change application has to be rebuild
+ - easy to end up with segfault and undesired benaviour if `argc` is mis calculated.
+
+## Use argv-argc
+
+### when to use
+ - if the current application does not take inputs at all.
+ - if the current application takes a few inputs
+ - adding DPDK args to the mix does not distrupt.
+ 
+### how to use
+ - refer DPDK `example/l2fwd`
+ - user or applciation arguments are bi-furcated via `--`
+ - once DPDK args are passed into `rte_eal_init`, reamining are passed to applcation logic
+
+### PROS:
+ - easy to use
+ - has ample reference in DPDK examples.
+ 
+### CONS:
+ - not easy to integrate in an existing system
+ - it is not necessary DPDK `rte_eal_init` is the first function to be invoked in the logic.
+ - will have lost context of argc-argv context.
+ 
+
+## Use DPDK configuration gile
+
+### when to use
+ - use it anywhere
+ - use it anytime
+ 
+### PROS:
+ - can be modified at any time
+ - no need to recompile the applciation logic
+ - adaptive to number of arguments passed
+ - can be invoked long before DPDK `rte_eal_init`
+ 
+### CONS:
+ - none as I can recollect
+ 
+### HOW to use
+ - DPDK header file to use is `rte_cfgfile.h`
+ - invoke `rte_cfgfile_load` with falg `CFG_FLAG_EMPTY_VALUES`
+ - check for your desired DPDK section with `rte_cfgfile_has_section`
+ - get number of sections `rte_cfgfile_section_num_entries`
+ - iterate the loop to get `key:value` with `rte_cfgfile_section_entries`
+ - for all valid key save the string to user passed array, increment argcount by 1
+ - for all valid value save the string to user passed array, increment argcount by 1
+ 
+ 
+ code snippet:
+ ```
+         struct rte_cfgfile_entry entries[CFG_MAXENTRIES];
+
+        struct rte_cfgfile *file = rte_cfgfile_load(QUICAPP_CONFIGFILE, CFG_FLAG_EMPTY_VALUES);
+        if (file == NULL)
+                rte_exit(EXIT_FAILURE, "fail to load (%s)\n", QUICAPP_CONFIGFILE);
+
+        /* parse EAL args */
+        if (rte_cfgfile_has_section(file, sec_name[0]) == 0)
+                rte_exit(EXIT_FAILURE, "fail to find (%s)", sec_name[0]);
+
+        ret = rte_cfgfile_num_sections(file, sec_name[0], strlen(sec_name[0]));
+        RTE_LOG(DEBUG, QUICAPP, "param %s: %d\n", sec_name[0], ret);
+        if (ret == 1) {
+                ret = rte_cfgfile_section_num_entries(file, sec_name[0]);
+                RTE_LOG(DEBUG, QUICAPP, "(%s) has (%d) entries!\n", sec_name[0], ret);
+
+                ret = rte_cfgfile_section_entries(file, sec_name[0], \
+                         entries, CFG_MAXENTRIES);
+
+                if (ret != -1) {
+                        int index = 1;
+                        *userdata->dpdk_argCount = ret;
+                        for (int i = 0; i < ret; i++) {
+                                RTE_LOG(DEBUG, QUICAPP, "name(%s) - value (%s)\n", \
+                                         entries[i].name, entries[i].value);
+
+                                snprintf(userdata->dpdk_args[index],
+                                         50, "%s", entries[i].name);
+                                index += 1;
+
+                                if (strlen(entries[i].value)) {
+                                        *userdata->dpdk_argCount += 1;
+                                        snprintf(userdata->dpdk_args[index],
+                                         50, "%s", entries[i].value);
+                                        index += 1;
+                                }
+                        }
+                } /* for all EAL entries */
+        }
+ ```
+ 
+ ```
+         app_args.dpdk_argCount = &args_count;
+        for (int i = 0; i < QUICAPP_MAXARGS; i++)
+                app_args.dpdk_args[i] = args_val[i];
+
+        int ret = validate_cfg(&app_args);
+
+        /* Initialize the Environment Abstraction Layer (EAL). */
+        ret = rte_eal_init(*app_args.dpdk_argCount, app_args.dpdk_args);
+        if (ret < 0)
+                rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
+ ```
+ 
