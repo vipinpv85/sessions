@@ -1,0 +1,16 @@
+# How to make Suricata run with DPDK
+ - suricata.c 
+  a. PrintUsage: add dpdk support information
+  b. RegisterAllModules: add DPDK receive and decode therads
+  c. ParseInterfacesList: if runmode is DPDK fetch and check for DPDK interfaces
+  d. ParseCommandLine: add option for runmode dpdk and listdpdkports
+  e. main: 
+    i. parse YAML for DPDK-SURICATA configuration
+    ii. check for pre filter ACL and create if necessary
+    iii. check for pre reassembly and create if necesasry
+    iv. validate user configuration
+    v. set the run mode based on YAML DPDK config
+    vi. cleanup DPDK instance if runmode is activated as DPDK
+  f. add support files `runmode-dpdk` and `source-dpdk`
+  
+Note: as discussed in walk through, functional reasoning are shared. Please refer `https://github.com/vipinpv85/DPDK_SURICATA-4_1_1` for more details.
