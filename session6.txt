@@ -1,0 +1,128 @@
+# Myth-1
+1. should we convert all threads pthreads to DPDK threads? No
+2. DPDK threads uses all my cpu cycles? No
+3. pthread is slower than DPDK thread? No
+4. pthread_create is same as DPDK remote_launch? No
+
+## Explanation:
+
+1. info on DPDK threads
+ - DPDK threads are created as part of rte_eal_init and set to `sleep` state. 
+ - Only `remote_laumch` sets the custom function to the desired thread changing from `sleep` to `run`
+ - threads are pinned based on core-mask and lthreads as 1:1
+ - multiple threards are mapped single cpu thred in case of `lcores`
+ - every DPDK threads is 100% user utilized if you are polling infinetly
+
+2. when to use DPDK therads & pthreads
+ - choice is yours, there is no hard and fast rules
+ - DPDK threads runs on state based run to completion, that is initial state is Sleep and with remote launch it becomes Run.
+ - pthreads starts from Run state with pthread_Create.
+ - lcore threads are core mapped or pinned, pthreads requires special attribute to do so.
+ 
+ # Myth-2
+  - we need DPDK Makefile to be integrate to custom applciaiton - No
+  - it is difficult to add DPDK libraries and dependencies to existing application - No
+  - DPDK will be supporting meson is future - can be true
+  - I need to convert all my cmake/automake/Makefile to meson - No
+  - It is really comples to understand which library and feature to use - partially true
+  
+ ## Explanation
+  - build DPDK with `Makefile`
+  - inside RTE_TARGET folder you will find `lib` and `include`
+  - build DPDK with meson
+  - inside target folder you will find `lib`, `driver` and `include`
+  
+  
+ # Logic Template
+ 
+ ## autoconf
+  ```
+   AC_ARG_ENABLE(dpdkintel,
+           AS_HELP_STRING([--enable-dpdkintel], [Enable DPDK_INTEL support [default=no]]),
+                        ,[enable_dpdkintel=no])
+    if test -z "$host" ; then
+      host="`uname`"
+    fi
+
+    echo -n "installation for '$host' OS... "
+    echo ""
+
+    case $host in
+    *-*-linux*)
+        ;;
+    *)
+
+    AC_MSG_ERROR([unsupported OS for DPDK_INTEL])
+      ;;
+    esac
+
+    AS_IF([test "x$enable_dpdkintel" = "xyes"], [
+        enable_af_packet="no"
+        AC_ARG_WITH(libdpdkintel_includes,
+                [  --with-libdpdkintel-includes=DIR  libdpdkintel include directory],
+                [with_libdpdkintel_includes="$withval"],[with_libdpdkintel_includes=no])
+        AC_ARG_WITH(libdpdkintel_libraries,
+                [  --with-libdpdkintel-libraries=DIR    libdpdkintel library directory],
+                [with_libdpdkintel_libraries="$withval"],[with_libdpdkintel_libraries="no"])
+        if test "$with_libdpdkintel_includes" != "no"; then
+          CFLAGS="$CFLAGS -DHAVE_DPDKINTEL -I${with_libdpdkintel_includes} -include ${with_libdpdkintel_includes}/rte_config.h "
+          CPPFLAGS="${CPPFLAGS} "
+        else
+          if test "${RTE_SDK}" = ""; then
+            echo ""
+            echo "-----------------------------------------------"
+            echo "  ERROR: pkg"
+            echo "  unable to find DPDK pkg path: "
+            echo "-----------------------------------------------"
+            echo ""
+            exit 1
+          else
+            if test -f ${RTE_SDK}/${RTE_TARGET}/include/rte_eal.h; then
+              CFLAGS="$CFLAGS -DHAVE_DPDKINTEL -I${RTE_SDK}/${RTE_TARGET}/include/ -include ${RTE_SDK}/${RTE_TARGET}/include/rte_config.h "
+              CPPFLAGS="${CPPFLAGS} "
+            else
+              echo ""
+              echo "-----------------------------------------------"
+              echo "  ERROR: RTE_SDK"
+              echo "  File ${RTE_SDK}/${RTE_TARGET}/include/rte_eal.h not found ...:"
+              echo "-----------------------------------------------"
+              echo ""
+              exit 1
+            fi
+          fi
+        fi
+        DPDKINTEL_LDADD="no"
+        if test "$with_libdpdkintel_libraries" != "no"; then
+            DPDKINTEL_LDADD=" -pthread -Wl,--no-as-needed -Wl,-export-dynamic -L${with_libdpdkintel_libraries}/ -Wl,-lrte_flow_classify -Wl,-lrte_pipeline -Wl,-lrte_table -Wl,-lrte_port -Wl,-lrte_pdump -Wl,-lrte_distributor -Wl,-lrte_ip_frag -Wl,-lrte_gro -Wl,-lrte_gso -Wl,-lrte_meter -Wl,-lrte_lpm -Wl,--whole-archive -Wl,-lrte_acl -Wl,--no-whole-archive -Wl,-lrte_jobstats -Wl,-lrte_metrics -Wl,-lrte_bitratestats -Wl,-lrte_latencystats -Wl,-lrte_power -Wl,-lrte_timer -Wl,-lrte_efd -Wl,--whole-archive -Wl,-lrte_cfgfile -Wl,-lrte_hash -Wl,-lrte_member -Wl,-lrte_vhost -Wl,-lrte_kvargs -Wl,-lrte_mbuf -Wl,-lrte_net -Wl,-lrte_ethdev -Wl,-lrte_cryptodev -Wl,-lrte_security -Wl,-lrte_eventdev -Wl,-lrte_mempool -Wl,-lrte_mempool_ring -Wl,-lrte_ring -Wl,-lrte_pci -Wl,-lrte_eal -Wl,-lrte_cmdline -Wl,-lrte_reorder -Wl,-lrte_sched -Wl,-lrte_kni -Wl,-lrte_bus_pci -Wl,-lrte_bus_vdev -Wl,-lrte_mempool_stack -Wl,-lrte_pmd_af_packet -Wl,-lrte_pmd_bond -Wl,-lrte_pmd_e1000 -Wl,-lrte_pmd_failsafe -Wl,-lrte_pmd_i40e -Wl,-lrte_pmd_ixgbe -Wl,-lrte_pmd_kni -Wl,-lrte_pmd_null -Wl,-lrte_pmd_ring -Wl,-lrte_pmd_softnic -Wl,-lrte_pmd_tap -Wl,-lrte_pmd_virtio -Wl,-lrte_pmd_vhost -Wl,-lrte_pmd_null_crypto -Wl,-lrte_pmd_crypto_scheduler -Wl,-lrte_pmd_skeleton_event -Wl,-lrte_pmd_sw_event -Wl,--no-whole-archive -Wl,-lrt -Wl,-lm -Wl,-lnuma -Wl,-ldl -Wl,-export-dynamic -Wl,--as-needed -Wl, ${with_libdpdkintel_libraries}/libdpdk.a "
+        else
+          if test "${RTE_TARGET}" = ""; then
+            echo ""
+            echo "-----------------------------------------------"
+            echo "  TARGET: $RTE_TARGET"
+            echo "  ERROR: unable to find DPDK TARGET: "
+            echo "-----------------------------------------------"
+            echo ""
+            exit 1
+          else
+            DPDKINTEL_LDADD=" -pthread -Wl,--no-as-needed -Wl,-export-dynamic -L${RTE_SDK}/${RTE_TARGET}/lib/ -Wl,-lrte_flow_classify -Wl,-lrte_pipeline -Wl,-lrte_table -Wl,-lrte_port -Wl,-lrte_pdump -Wl,-lrte_distributor -Wl,-lrte_ip_frag -Wl,-lrte_gro -Wl,-lrte_gso -Wl,-lrte_meter -Wl,-lrte_lpm -Wl,--whole-archive -Wl,-lrte_acl -Wl,--no-whole-archive -Wl,-lrte_jobstats -Wl,-lrte_metrics -Wl,-lrte_bitratestats -Wl,-lrte_latencystats -Wl,-lrte_power -Wl,-lrte_timer -Wl,-lrte_efd -Wl,--whole-archive -Wl,-lrte_cfgfile -Wl,-lrte_hash -Wl,-lrte_member -Wl,-lrte_vhost -Wl,-lrte_kvargs -Wl,-lrte_mbuf -Wl,-lrte_net -Wl,-lrte_ethdev -Wl,-lrte_cryptodev -Wl,-lrte_security -Wl,-lrte_eventdev -Wl,-lrte_mempool -Wl,-lrte_mempool_ring -Wl,-lrte_ring -Wl,-lrte_pci -Wl,-lrte_eal -Wl,-lrte_cmdline -Wl,-lrte_reorder -Wl,-lrte_sched -Wl,-lrte_kni -Wl,-lrte_bus_pci -Wl,-lrte_bus_vdev -Wl,-lrte_mempool_stack -Wl,-lrte_pmd_af_packet -Wl,-lrte_pmd_bond -Wl,-lrte_pmd_e1000 -Wl,-lrte_pmd_failsafe -Wl,-lrte_pmd_i40e -Wl,-lrte_pmd_ixgbe -Wl,-lrte_pmd_kni -Wl,-lrte_pmd_null -Wl,-lrte_pmd_ring -Wl,-lrte_pmd_softnic -Wl,-lrte_pmd_tap -Wl,-lrte_pmd_virtio -Wl,-lrte_pmd_vhost -Wl,-lrte_pmd_null_crypto -Wl,-lrte_pmd_crypto_scheduler -Wl,-lrte_pmd_skeleton_event -Wl,-lrte_pmd_sw_event -Wl,--no-whole-archive -Wl,-lrt -Wl,-lm -Wl,-lnuma -Wl,-ldl -Wl,-export-dynamic -Wl,--as-needed -Wl, ${RTE_SDK}/${RTE_TARGET}/lib/libdpdk.a "
+          fi
+        fi
+        AC_SUBST(DPDKINTEL_LDADD)
+        echo " Added configuration for DPDK-INTEL"
+        echo ""
+    ])
+
+    AM_CONDITIONAL([BUILD_DPDKINTEL], [test "x$enable_dpdkintel" = "xyes"])
+  ```
+  
+  ## Makefile
+  ```
+  -Wl,--whole-archive -L${RTE_SDK}${RTE_TARGET}/lib/ -L${RTE_SDK}${RTE_TARGET}/lib/libintel_dpdk.a -lrt -ldl -lpthread -Wl,--no-whole-archive
+  ```
+  
+  ## Meson
+   - option 1: `meson setup -Dc_args=$CFLAGS -Dc_link_args=$LDFLAGS [target folder]`
+   - option 2: inside meson.build as `c_args=${DPDK_CFLAGS}` and `c_link_args=${DPDK_LDFLAGS}`
+   
+   Note: use `make -n` on dpdk examples to get a hint on what compiler flags to use and what to link.
+  ```
